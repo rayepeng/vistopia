@@ -135,6 +135,8 @@ def save_show(ctx: click.Context, **argv):
 @click.option("--episode-id", help="Episode ID in the form '1-3,4,8'")
 @click.option("--format", type=click.Choice(["markdown", "html"]), default="markdown", 
               help="保存格式，默认为markdown")
+@click.option("--no-gitbook", is_flag=True, default=False,
+              help="不使用GitBook格式组织文件")
 @click.option("--single-file-exec-path", type=click.Path(),
               help="Path to the single-file CLI tool")
 @click.option("--cookie-file-path", type=click.Path(),
@@ -146,6 +148,7 @@ def save_transcript(ctx: click.Context, **argv):
     content_id = argv.pop("id")
     episode_id = argv.pop("episode_id", None)
     format_type = argv.pop("format", "markdown")
+    no_gitbook = argv.pop("no_gitbook", False)
     single_file_exec_path = argv.pop("single_file_exec_path")
     cookie_file_path = argv.pop("cookie_file_path")
     episodes = set(range_expand(episode_id) if episode_id else [])
@@ -170,7 +173,8 @@ def save_transcript(ctx: click.Context, **argv):
         else:
             ctx.obj.visitor.save_transcript(
                 content_id,
-                episodes=episodes
+                episodes=episodes,
+                gitbook_format=not no_gitbook
             )
 
 

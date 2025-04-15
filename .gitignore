@@ -133,3 +133,9 @@ dmypy.json
 
 # OS
 .DS_Store
+
+# 视托邦下载内容
+downloads/
+**/audio/
+**/transcript/
+*.mp3

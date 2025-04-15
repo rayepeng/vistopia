@@ -123,9 +123,20 @@ class Visitor:
 
         catalog = self.get_catalog(id)
         series = self.get_content_show(id)
-
-        show_dir = Path(catalog["title"])
-        show_dir.mkdir(exist_ok=True)
+        catalog_title = sanitize_filename(catalog["title"])
+        
+        # 创建保存目录结构
+        base_dir = Path("downloads")
+        
+        # 创建节目主目录
+        show_dir = base_dir / catalog_title
+        show_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 创建音频和文稿子目录
+        audio_dir = show_dir / "audio"
+        audio_dir.mkdir(exist_ok=True)
+        
+        print(f"开始下载《{catalog['title']}》的音频文件...")
 
         for part in catalog["catalog"]:
             for article in part["part"]:
@@ -134,11 +145,12 @@ class Visitor:
                         int(article["sort_number"]) not in episodes:
                     continue
 
-                fname = show_dir / "{}.mp3".format(
+                fname = audio_dir / "{}.mp3".format(
                     sanitize_filename(article["title"])
                 )
                 if not fname.exists():
                     urlretrieve(article["media_key_full_url"], fname)
+                    print(f"已下载音频: {fname}")
 
                 if not no_tag:
                     self.retag(str(fname), article, catalog, series)
@@ -157,9 +169,21 @@ class Visitor:
         from pathlib import Path
 
         catalog = self.get_catalog(id)
-
-        show_dir = Path(catalog["title"])
-        show_dir.mkdir(exist_ok=True)
+        catalog_title = sanitize_filename(catalog["title"])
+        
+        # 创建保存目录结构
+        base_dir = Path("downloads")
+        
+        # 创建节目主目录
+        show_dir = base_dir / catalog_title
+        show_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 创建音频和文稿子目录
+        audio_dir = show_dir / "audio"
+        audio_dir.mkdir(exist_ok=True)
+        
+        transcript_dir = show_dir / "transcript"
+        transcript_dir.mkdir(exist_ok=True)
         
         print(f"开始下载《{catalog['title']}》的文稿(HTML格式)...")
 
@@ -170,7 +194,7 @@ class Visitor:
                         int(article["sort_number"]) not in episodes:
                     continue
 
-                fname = show_dir / "{}.html".format(
+                fname = transcript_dir / "{}.html".format(
                     sanitize_filename(article["title"])
                 )
                 if not fname.exists():
@@ -187,15 +211,16 @@ class Visitor:
                     with open(fname, "w") as f:
                         f.write(content)
                     
-                    print(f"已下载: {fname}")
+                    print(f"已下载文稿: {fname}")
 
-    def save_transcript(self, id: int, episodes: Optional[set] = None):
+    def save_transcript(self, id: int, episodes: Optional[set] = None, gitbook_format: bool = True):
         """
         保存节目文稿至本地（Markdown格式）
         
         参数:
             id: 内容ID
             episodes: 要下载的集数集合
+            gitbook_format: 是否使用GitBook格式
         """
         from pathlib import Path
         
@@ -203,19 +228,87 @@ class Visitor:
             raise ImportError("请先安装html2markdown: pip install html2markdown")
 
         catalog = self.get_catalog(id)
-
-        show_dir = Path(catalog["title"])
-        show_dir.mkdir(exist_ok=True)
+        catalog_title = sanitize_filename(catalog["title"])
+        
+        # 创建保存目录结构
+        base_dir = Path("downloads")
+        
+        # 创建节目主目录
+        show_dir = base_dir / catalog_title
+        show_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 创建音频和文稿子目录
+        audio_dir = show_dir / "audio"
+        audio_dir.mkdir(exist_ok=True)
+        
+        transcript_dir = show_dir / "transcript"
+        transcript_dir.mkdir(exist_ok=True)
         
         print(f"开始下载《{catalog['title']}》的文稿(Markdown格式)...")
+        
+        # GitBook需要的文件
+        if gitbook_format:
+            # 创建GitBook所需的book.json
+            book_config = {
+                "title": catalog["title"],
+                "description": catalog.get("subtitle", ""),
+                "author": catalog.get("author", ""),
+                "language": "zh-hans",
+                "plugins": ["theme-default", "fontsettings"],
+                "pdf": {
+                    "pageNumbers": True,
+                    "fontSize": 12,
+                    "paperSize": "a4",
+                    "margin": {
+                        "right": 62,
+                        "left": 62,
+                        "top": 36,
+                        "bottom": 36
+                    }
+                }
+            }
+            
+            with open(transcript_dir / "book.json", "w", encoding="utf-8") as f:
+                json.dump(book_config, f, ensure_ascii=False, indent=2)
+            
+            # 创建README.md作为首页
+            with open(transcript_dir / "README.md", "w", encoding="utf-8") as f:
+                f.write(f"# {catalog['title']}\n\n")
+                if "subtitle" in catalog:
+                    f.write(f"{catalog['subtitle']}\n\n")
+                if "author" in catalog:
+                    f.write(f"作者: {catalog['author']}\n\n")
+                if "description" in catalog:
+                    f.write(f"{catalog['description']}\n\n")
+            
+            # 创建SUMMARY.md作为目录
+            with open(transcript_dir / "SUMMARY.md", "w", encoding="utf-8") as f:
+                f.write(f"# 目录\n\n")
+                f.write(f"* [简介](README.md)\n")
+        
+        # 收集要写入SUMMARY.md的目录项
+        summary_items = []
 
-        for part in catalog["catalog"]:
+        # 遍历所有分集
+        for part_index, part in enumerate(catalog["catalog"]):
+            # 如果有多个单元/章节，为每个单元创建目录
+            part_title = part.get("title", f"第{part_index+1}章")
+            part_dir = None
+            
+            if gitbook_format and len(catalog["catalog"]) > 1:
+                part_dir = transcript_dir / sanitize_filename(part_title)
+                part_dir.mkdir(exist_ok=True)
+                
+                # 添加章节到SUMMARY.md
+                summary_items.append(f"* [{part_title}]()")
+            
             for article in part["part"]:
                 if episodes and int(article["sort_number"]) not in episodes:
                     continue
                 
                 article_id = article["article_id"]
                 title = article["title"]
+                safe_title = sanitize_filename(title)
                 
                 # 使用新API获取完整文章内容
                 html_content = self.get_article_full_content(article_id)
@@ -226,13 +319,40 @@ class Visitor:
                 # 转换为Markdown
                 markdown_content = self.html_to_markdown(html_content)
                 
-                # 保存为Markdown文件
-                fname = show_dir / f"{sanitize_filename(title)}.md"
-                with open(fname, "w", encoding="utf-8") as f:
+                # 构建文件路径
+                if part_dir and gitbook_format:
+                    # 如果有单元目录，保存到单元目录下
+                    file_path = part_dir / f"{safe_title}.md"
+                    # 相对路径用于SUMMARY.md
+                    relative_path = f"{sanitize_filename(part_title)}/{safe_title}.md"
+                else:
+                    # 否则直接保存到transcript目录
+                    file_path = transcript_dir / f"{safe_title}.md"
+                    relative_path = f"{safe_title}.md"
+                
+                # 保存文件
+                with open(file_path, "w", encoding="utf-8") as f:
                     f.write(f"# {title}\n\n")
                     f.write(markdown_content)
                 
-                print(f"已下载: {fname}")
+                print(f"已下载文稿: {file_path}")
+                
+                # 添加到SUMMARY.md
+                if gitbook_format:
+                    if part_dir:
+                        summary_items.append(f"  * [{title}]({relative_path})")
+                    else:
+                        summary_items.append(f"* [{title}]({relative_path})")
+        
+        # 更新SUMMARY.md
+        if gitbook_format:
+            with open(transcript_dir / "SUMMARY.md", "a", encoding="utf-8") as f:
+                for item in summary_items:
+                    f.write(f"{item}\n")
+            
+            print(f"GitBook格式文件已保存到: {transcript_dir}")
+            print(f"可以使用 'gitbook serve {transcript_dir}' 在本地预览")
+            print(f"或使用 'gitbook epub {transcript_dir}' 生成EPUB电子书")
     
     def get_article_full_content(self, article_id: str) -> str:
         """
@@ -393,15 +513,28 @@ class Visitor:
         logger.debug(f"save_transcript_with_single_file id {id}")
 
         catalog = self.get_catalog(id)
-        show_dir = Path(catalog["title"])
-        show_dir.mkdir(exist_ok=True)
+        catalog_title = sanitize_filename(catalog["title"])
+        
+        # 创建保存目录结构
+        base_dir = Path("downloads")
+        
+        # 创建节目主目录
+        show_dir = base_dir / catalog_title
+        show_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 创建音频和文稿子目录
+        audio_dir = show_dir / "audio"
+        audio_dir.mkdir(exist_ok=True)
+        
+        transcript_dir = show_dir / "transcript"
+        transcript_dir.mkdir(exist_ok=True)
 
         for part in catalog["catalog"]:
             for article in part["part"]:
                 if episodes and int(article["sort_number"]) not in episodes:
                     continue
 
-                fname = show_dir / "{}.html".format(
+                fname = transcript_dir / "{}.html".format(
                     sanitize_filename(article["title"])
                 )
                 if not fname.exists():
@@ -416,7 +549,7 @@ class Visitor:
                     try:
                         subprocess.run(command, check=True)
                         print(
-                            f"Successfully fetched and saved to {fname}")
+                            f"已下载文稿: {fname}")
                     except subprocess.CalledProcessError as e:
                         print(f"Failed to fetch page using single-file: {e}")
 
