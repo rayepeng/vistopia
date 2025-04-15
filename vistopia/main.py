@@ -133,6 +133,8 @@ def save_show(ctx: click.Context, **argv):
 @main.command("save-transcript", help="保存节目文稿至本地")
 @click.option("--id", type=click.INT, required=True)
 @click.option("--episode-id", help="Episode ID in the form '1-3,4,8'")
+@click.option("--format", type=click.Choice(["markdown", "html"]), default="markdown", 
+              help="保存格式，默认为markdown")
 @click.option("--single-file-exec-path", type=click.Path(),
               help="Path to the single-file CLI tool")
 @click.option("--cookie-file-path", type=click.Path(),
@@ -143,6 +145,7 @@ def save_show(ctx: click.Context, **argv):
 def save_transcript(ctx: click.Context, **argv):
     content_id = argv.pop("id")
     episode_id = argv.pop("episode_id", None)
+    format_type = argv.pop("format", "markdown")
     single_file_exec_path = argv.pop("single_file_exec_path")
     cookie_file_path = argv.pop("cookie_file_path")
     episodes = set(range_expand(episode_id) if episode_id else [])
@@ -158,10 +161,17 @@ def save_transcript(ctx: click.Context, **argv):
             cookie_file_path=cookie_file_path
         )
     else:
-        ctx.obj.visitor.save_transcript(
-            content_id,
-            episodes=episodes
-        )
+        # 根据format参数决定保存为markdown还是html
+        if format_type == "html":
+            ctx.obj.visitor.save_transcript_html(
+                content_id,
+                episodes=episodes
+            )
+        else:
+            ctx.obj.visitor.save_transcript(
+                content_id,
+                episodes=episodes
+            )
 
 
 if __name__ == "__main__":
