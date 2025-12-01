@@ -332,7 +332,11 @@ class Visitor:
                     continue
                 
                 # 转换为Markdown
-                markdown_content = self.html_to_markdown(html_content, assets_dir)
+                relative_path_prefix = ""
+                if part_dir and gitbook_format:
+                    relative_path_prefix = "../"
+                
+                markdown_content = self.html_to_markdown(html_content, assets_dir, relative_path_prefix)
                 
                 # 构建文件路径
                 if part_dir and gitbook_format:
@@ -414,7 +418,7 @@ class Visitor:
         
         return ""
     
-    def html_to_markdown(self, html_content: str, assets_dir: Optional[str] = None) -> str:
+    def html_to_markdown(self, html_content: str, assets_dir: Optional[str] = None, relative_path_prefix: str = "") -> str:
         """
         将HTML内容转换为Markdown格式
         保持标题层级结构，正确处理常见HTML标签
@@ -422,6 +426,7 @@ class Visitor:
         参数:
             html_content: HTML内容
             assets_dir: 图片保存目录
+            relative_path_prefix: 图片引用路径前缀
         
         返回:
             Markdown格式的内容
@@ -447,6 +452,10 @@ class Visitor:
             src = img.get('src', '')
             alt = img.get('alt', '')
             
+            # 处理相对URL
+            if src and not src.startswith(('http://', 'https://')):
+                src = urljoin("https://www.vistopia.com.cn", src)
+
             if src and assets_dir:
                 try:
                     # 下载图片
@@ -468,7 +477,7 @@ class Visitor:
                         # print(f"已下载图片: {local_path}")
                     
                     # 使用相对路径
-                    src = f"../assets/{img_name}"
+                    src = f"{relative_path_prefix}assets/{img_name}"
                 except Exception as e:
                     logger.warning(f"下载图片失败 {src}: {e}")
             
