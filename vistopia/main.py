@@ -143,6 +143,7 @@ def save_show(ctx: click.Context, **argv):
               help=(
                   "Path to the browser cookie file "
                   "(only needed in single-file mode)"))
+@click.option("--limit", "-n", type=click.INT, help="Limit the number of episodes to download (for testing)")
 @click.pass_context
 def save_transcript(ctx: click.Context, **argv):
     content_id = argv.pop("id")
@@ -151,6 +152,7 @@ def save_transcript(ctx: click.Context, **argv):
     no_gitbook = argv.pop("no_gitbook", False)
     single_file_exec_path = argv.pop("single_file_exec_path")
     cookie_file_path = argv.pop("cookie_file_path")
+    limit = argv.pop("limit", None)
     episodes = set(range_expand(episode_id) if episode_id else [])
 
     logger.debug(json.dumps(
@@ -161,20 +163,23 @@ def save_transcript(ctx: click.Context, **argv):
             content_id,
             episodes=episodes,
             single_file_exec_path=single_file_exec_path,
-            cookie_file_path=cookie_file_path
+            cookie_file_path=cookie_file_path,
+            limit=limit
         )
     else:
         # 根据format参数决定保存为markdown还是html
         if format_type == "html":
             ctx.obj.visitor.save_transcript_html(
                 content_id,
-                episodes=episodes
+                episodes=episodes,
+                limit=limit
             )
         else:
             ctx.obj.visitor.save_transcript(
                 content_id,
                 episodes=episodes,
-                gitbook_format=not no_gitbook
+                gitbook_format=not no_gitbook,
+                limit=limit
             )
 
 

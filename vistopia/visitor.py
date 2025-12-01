@@ -158,13 +158,14 @@ class Visitor:
                 if not no_cover:
                     self.retag_cover(str(fname), article, catalog, series)
 
-    def save_transcript_html(self, id: int, episodes: Optional[set] = None):
+    def save_transcript_html(self, id: int, episodes: Optional[set] = None, limit: Optional[int] = None):
         """
         保存节目文稿至本地（HTML格式）
         
         参数:
             id: 内容ID
             episodes: 要下载的集数集合
+            limit: 限制下载的集数
         """
         from pathlib import Path
 
@@ -187,8 +188,11 @@ class Visitor:
         
         print(f"开始下载《{catalog['title']}》的文稿(HTML格式)...")
 
+        count = 0
         for part in catalog["catalog"]:
             for article in part["part"]:
+                if limit and count >= limit:
+                    break
 
                 if episodes and \
                         int(article["sort_number"]) not in episodes:
@@ -212,8 +216,14 @@ class Visitor:
                         f.write(content)
                     
                     print(f"已下载文稿: {fname}")
+                    
+                    count += 1
+                    if limit and count >= limit:
+                        break
+            if limit and count >= limit:
+                break
 
-    def save_transcript(self, id: int, episodes: Optional[set] = None, gitbook_format: bool = True):
+    def save_transcript(self, id: int, episodes: Optional[set] = None, gitbook_format: bool = True, limit: Optional[int] = None):
         """
         保存节目文稿至本地（Markdown格式）
         
@@ -221,6 +231,7 @@ class Visitor:
             id: 内容ID
             episodes: 要下载的集数集合
             gitbook_format: 是否使用GitBook格式
+            limit: 限制下载的集数
         """
         from pathlib import Path
         
@@ -244,6 +255,9 @@ class Visitor:
         transcript_dir = show_dir / "transcript"
         transcript_dir.mkdir(exist_ok=True)
         
+        assets_dir = transcript_dir / "assets"
+        assets_dir.mkdir(exist_ok=True)
+
         print(f"开始下载《{catalog['title']}》的文稿(Markdown格式)...")
         
         # GitBook需要的文件
@@ -289,6 +303,7 @@ class Visitor:
         # 收集要写入SUMMARY.md的目录项
         summary_items = []
 
+        count = 0
         # 遍历所有分集
         for part_index, part in enumerate(catalog["catalog"]):
             # 如果有多个单元/章节，为每个单元创建目录
@@ -317,7 +332,7 @@ class Visitor:
                     continue
                 
                 # 转换为Markdown
-                markdown_content = self.html_to_markdown(html_content)
+                markdown_content = self.html_to_markdown(html_content, assets_dir)
                 
                 # 构建文件路径
                 if part_dir and gitbook_format:
@@ -343,6 +358,12 @@ class Visitor:
                         summary_items.append(f"  * [{title}]({relative_path})")
                     else:
                         summary_items.append(f"* [{title}]({relative_path})")
+                
+                count += 1
+                if limit and count >= limit:
+                    break
+            if limit and count >= limit:
+                break
         
         # 更新SUMMARY.md
         if gitbook_format:
@@ -393,13 +414,14 @@ class Visitor:
         
         return ""
     
-    def html_to_markdown(self, html_content: str) -> str:
+    def html_to_markdown(self, html_content: str, assets_dir: Optional[str] = None) -> str:
         """
         将HTML内容转换为Markdown格式
         保持标题层级结构，正确处理常见HTML标签
         
         参数:
             html_content: HTML内容
+            assets_dir: 图片保存目录
         
         返回:
             Markdown格式的内容
@@ -412,9 +434,75 @@ class Visitor:
         for header in headers:
             # 获取标题级别
             level = int(header.name[1])
+            # 针对Vistopia的特殊处理：将h4提升为h2
+            if level == 4:
+                level = 2
+            
             # 创建相应级别的Markdown标题
             header.replace_with(f"{'#' * level} {header.get_text().strip()}\n\n")
+
+        # 处理图片 (必须在段落处理之前)
+        images = soup.find_all('img')
+        for img in images:
+            src = img.get('src', '')
+            alt = img.get('alt', '')
+            
+            if src and assets_dir:
+                try:
+                    # 下载图片
+                    from pathlib import Path
+                    assets_path = Path(assets_dir)
+                    
+                    # 获取文件名
+                    img_name = src.split('/')[-1].split('?')[0]
+                    if not img_name:
+                        import hashlib
+                        img_name = hashlib.md5(src.encode()).hexdigest() + ".jpg"
+                    
+                    # 确保文件名安全
+                    img_name = sanitize_filename(img_name)
+                    local_path = assets_path / img_name
+                    
+                    if not local_path.exists():
+                        urlretrieve(src, local_path)
+                        # print(f"已下载图片: {local_path}")
+                    
+                    # 使用相对路径
+                    src = f"../assets/{img_name}"
+                except Exception as e:
+                    logger.warning(f"下载图片失败 {src}: {e}")
+            
+            img.replace_with(f"![{alt}]({src})\n\n")
+
+        # 处理链接 (必须在段落处理之前)
+        links = soup.find_all('a')
+        for link in links:
+            href = link.get('href', '')
+            text = link.get_text().strip()
+            link.replace_with(f"[{text}]({href})")
+
+        # 处理强调标签 (必须在段落处理之前)
+        strongs = soup.find_all('strong')
+        for strong in strongs:
+            # 将strong转换为Markdown加粗格式
+            strong.replace_with(f"**{strong.get_text().strip()}**")
+
+        # 处理em标签（斜体）
+        ems = soup.find_all('em')
+        for em in ems:
+            em.replace_with(f"*{em.get_text().strip()}*")
+            
+        # 处理code标签（行内代码）
+        codes = soup.find_all('code')
+        for code in codes:
+            code.replace_with(f"`{code.get_text().strip()}`")
         
+        # 处理pre标签（代码块）
+        pres = soup.find_all('pre')
+        for pre in pres:
+            pre_text = pre.get_text().strip()
+            pre.replace_with(f"```\n{pre_text}\n```\n\n")
+
         # 处理段落标签
         paragraphs = soup.find_all('p')
         for p in paragraphs:
@@ -426,19 +514,6 @@ class Visitor:
         for div in divs:
             # 将div转换为Markdown段落
             div.replace_with(f"{div.get_text().strip()}\n\n")
-        
-        # 处理强调标签
-        strongs = soup.find_all('strong')
-        for strong in strongs:
-            # 将strong转换为Markdown加粗格式
-            strong.replace_with(f"**{strong.get_text().strip()}**")
-        
-        # 处理图片
-        images = soup.find_all('img')
-        for img in images:
-            src = img.get('src', '')
-            alt = img.get('alt', '')
-            img.replace_with(f"![{alt}]({src})\n\n")
         
         # 处理列表
         # 有序列表
@@ -455,13 +530,6 @@ class Visitor:
             list_content = "\n".join([f"- {item.get_text().strip()}" for item in items])
             ul.replace_with(f"{list_content}\n\n")
         
-        # 处理链接
-        links = soup.find_all('a')
-        for link in links:
-            href = link.get('href', '')
-            text = link.get_text().strip()
-            link.replace_with(f"[{text}]({href})")
-        
         # 处理引用
         blockquotes = soup.find_all('blockquote')
         for quote in blockquotes:
@@ -469,35 +537,15 @@ class Visitor:
             quote_text = quote.get_text().strip().replace('\n', '\n> ')
             quote.replace_with(f"> {quote_text}\n\n")
         
-        # 处理em标签（斜体）
-        ems = soup.find_all('em')
-        for em in ems:
-            em.replace_with(f"*{em.get_text().strip()}*")
-            
-        # 处理code标签（行内代码）
-        codes = soup.find_all('code')
-        for code in codes:
-            code.replace_with(f"`{code.get_text().strip()}`")
-        
-        # 处理pre标签（代码块）
-        pres = soup.find_all('pre')
-        for pre in pres:
-            pre_text = pre.get_text().strip()
-            pre.replace_with(f"```\n{pre_text}\n```\n\n")
-        
         # 获取处理后的HTML
-        html_processed = str(soup)
+        # html_processed = str(soup)
         
-        # 使用html2markdown进行最终转换
-        try:
-            markdown_content = html2markdown.convert(html_processed)
-        except Exception as e:
-            logger.warning(f"html2markdown转换失败: {e}，使用自定义转换")
-            # 自定义转换逻辑，移除所有剩余的HTML标签
-            markdown_content = html_processed
+        # 直接使用soup.get_text()获取转换后的Markdown
+        # 因为我们已经将所有标签替换为Markdown格式的文本了
+        markdown_content = soup.get_text()
         
-        # 清理多余的HTML标签
-        markdown_content = re.sub(r'<[^>]*>', '', markdown_content)
+        # 清理多余的HTML标签 (如果有残留)
+        # markdown_content = re.sub(r'<[^>]*>', '', markdown_content)
         
         # 清理额外的空行
         markdown_content = re.sub(r'\n{3,}', '\n\n', markdown_content)
@@ -507,7 +555,8 @@ class Visitor:
     def save_transcript_with_single_file(self, id: int,
                                          episodes: Optional[set] = None,
                                          single_file_exec_path: str = "",
-                                         cookie_file_path: str = ""):
+                                         cookie_file_path: str = "",
+                                         limit: Optional[int] = None):
         import subprocess
         from pathlib import Path
         logger.debug(f"save_transcript_with_single_file id {id}")
@@ -529,6 +578,7 @@ class Visitor:
         transcript_dir = show_dir / "transcript"
         transcript_dir.mkdir(exist_ok=True)
 
+        count = 0
         for part in catalog["catalog"]:
             for article in part["part"]:
                 if episodes and int(article["sort_number"]) not in episodes:
@@ -552,6 +602,12 @@ class Visitor:
                             f"已下载文稿: {fname}")
                     except subprocess.CalledProcessError as e:
                         print(f"Failed to fetch page using single-file: {e}")
+                
+                count += 1
+                if limit and count >= limit:
+                    break
+            if limit and count >= limit:
+                break
 
     @staticmethod
     def retag(
